@@ -70,10 +70,10 @@ Found a bug? Want to add a format? PRs welcome. Just keep it client-side - that'
 - No data collection
 - No cookies
 - No server uploads
-- Open source so you can verify
+- Open source
 
 
-Your files never leave your device. Period.
+Your files never leave your device.
 
 ## License
 
