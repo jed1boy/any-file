@@ -39,7 +39,7 @@ export default function HomePage() {
   }
 
   return (
-    <div className="md:min-h-screen bg-background relative overflow-hidden">
+    <div className="md:min-h-screen bg-background relative overflow-hidden pt-14">
       <div className="absolute inset-0 opacity-20 pointer-events-none">
         <MeshGradient colors={["#000000", "#1a1a1a", "#0070f3", "#000000"]} speed={0.01} />
       </div>

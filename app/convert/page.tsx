@@ -92,7 +92,7 @@ function ConvertPageContent() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background pt-14">
       <header className="border-b bg-card/80 backdrop-blur-sm">
         <div className="container mx-auto px-4 py-4">
           <Button variant="ghost" size="sm" onClick={handleBackHome}>

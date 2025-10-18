@@ -2,8 +2,8 @@ import type React from "react"
 import type { Metadata } from "next"
 import "./globals.css"
 import { FileProvider } from "@/lib/file-context"
+import { Navbar } from "@/components/navbar"
 
-import { Geist as V0_Font_Geist } from "next/font/google"
 import { Geist, Geist_Mono, Geist as V0_Font_Geist, Geist_Mono as V0_Font_Geist_Mono, Source_Serif_4 as V0_Font_Source_Serif_4 } from 'next/font/google'
 
 // Initialize fonts
@@ -13,7 +13,7 @@ const _sourceSerif_4 = V0_Font_Source_Serif_4({ subsets: ['latin'], weight: ["20
 
 const geist = Geist({
   subsets: ["latin"],
-  variable: "--font-geist",
+  variable: "--font-geist-sans",
 })
 
 const geistMono = Geist_Mono({
@@ -22,7 +22,7 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: "Any-file",
+  title: "Any-file - Convert Files Privately",
   description: "Convert PDF, DOCX, XLSX, images, audio and video files online",
     generator: 'v0.app'
 }
@@ -35,6 +35,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className={`${geist.variable} ${geistMono.variable} font-sans antialiased`}>
+        <Navbar />
         <FileProvider>{children}</FileProvider>
       </body>
     </html>
