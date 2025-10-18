@@ -14,7 +14,7 @@ interface FileUploadZoneProps {
   maxSize?: number
 }
 
-export function FileUploadZone({ onFileSelect, accept, maxSize = 100 * 1024 * 1024 }: FileUploadZoneProps) {
+export function FileUploadZone({ onFileSelect, accept, maxSize = 1024 * 1024 * 1024 }: FileUploadZoneProps) {
   const [isDragging, setIsDragging] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
