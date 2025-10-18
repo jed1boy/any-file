@@ -39,14 +39,14 @@ export default function HomePage() {
   }
 
   return (
-    <div className="md:min-h-screen bg-background relative overflow-hidden pt-14">
+    <div className="bg-background relative overflow-hidden pt-14">
       <div className="absolute inset-0 opacity-20 pointer-events-none">
         <MeshGradient colors={["#000000", "#1a1a1a", "#0070f3", "#000000"]} speed={0.01} />
       </div>
 
       <main className="relative z-10">
-        <div className="container mx-auto px-4 py-12 pb-8 md:py-32">
-          <div className="max-w-4xl mx-auto space-y-12 md:space-y-20">
+        <div className="container mx-auto px-4 py-8 md:py-16">
+          <div className="max-w-4xl mx-auto space-y-12 md:space-y-16">
             <div className="text-center space-y-6 md:space-y-8 cursor-default">
               <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-balance leading-[1.2]">
                 Convert your files <span className="highlight-privately">privately</span>.
