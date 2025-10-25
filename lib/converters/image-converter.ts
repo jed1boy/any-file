@@ -1,4 +1,4 @@
-export async function convertImage(file: File, targetFormat: "png" | "jpg" | "jpeg" | "webp"): Promise<Blob> {
+export async function convertImage(file: File, targetFormat: "png" | "jpg" | "jpeg" | "webp" | "gif"): Promise<Blob> {
   return new Promise((resolve, reject) => {
     const img = new Image()
     img.crossOrigin = "anonymous"
@@ -18,6 +18,13 @@ export async function convertImage(file: File, targetFormat: "png" | "jpg" | "jp
 
       ctx.drawImage(img, 0, 0)
 
+      // Handle GIF conversion (note: animated GIFs will become static)
+      if (targetFormat === "gif") {
+        console.warn("[v0] Converting to GIF will result in a static image (animation not preserved)")
+      }
+
+      const mimeType = targetFormat === "jpg" ? "jpeg" : targetFormat
+
       canvas.toBlob(
         (blob) => {
           if (blob) {
@@ -26,7 +33,7 @@ export async function convertImage(file: File, targetFormat: "png" | "jpg" | "jp
             reject(new Error("Failed to convert image"))
           }
         },
-        `image/${targetFormat === "jpg" ? "jpeg" : targetFormat}`,
+        `image/${mimeType}`,
         0.95,
       )
     }

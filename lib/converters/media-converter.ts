@@ -1,7 +1,10 @@
 import { FFmpeg } from "@ffmpeg/ffmpeg"
 import { toBlobURL, fetchFile } from "@ffmpeg/util"
 
-export async function convertAudio(file: File, targetFormat: "mp3" | "wav"): Promise<Blob> {
+export async function convertAudio(
+  file: File,
+  targetFormat: "mp3" | "wav" | "ogg" | "aac" | "flac" | "m4a",
+): Promise<Blob> {
   return new Promise(async (resolve, reject) => {
     try {
       const audioContext = new AudioContext()
@@ -28,8 +31,9 @@ export async function convertAudio(file: File, targetFormat: "mp3" | "wav"): Pro
         const mp3Blob = await audioBufferToMp3(renderedBuffer)
         resolve(mp3Blob)
       } else {
-        const wavBlob = audioBufferToWav(renderedBuffer)
-        resolve(wavBlob)
+        // Try to encode with MediaRecorder for other formats
+        const encodedBlob = await encodeWithMediaRecorder(renderedBuffer, targetFormat as any)
+        resolve(encodedBlob)
       }
     } catch (error) {
       reject(error)
@@ -106,6 +110,24 @@ function audioBufferToWav(buffer: AudioBuffer): Blob {
 async function audioBufferToMp3(buffer: AudioBuffer): Promise<Blob> {
   return new Promise((resolve, reject) => {
     try {
+      // Check if browser supports MP3 encoding
+      const supportedTypes = ["audio/mpeg", "audio/mp3", "audio/mpeg3", "audio/x-mpeg-3"]
+
+      let supportedMimeType: string | null = null
+      for (const type of supportedTypes) {
+        if (MediaRecorder.isTypeSupported(type)) {
+          supportedMimeType = type
+          break
+        }
+      }
+
+      // If no MP3 support, fall back to WAV
+      if (!supportedMimeType) {
+        console.warn("[v0] MP3 encoding not supported by browser, converting to WAV instead")
+        resolve(audioBufferToWav(buffer))
+        return
+      }
+
       const audioContext = new AudioContext()
       const source = audioContext.createBufferSource()
       source.buffer = buffer
@@ -113,14 +135,8 @@ async function audioBufferToMp3(buffer: AudioBuffer): Promise<Blob> {
       const destination = audioContext.createMediaStreamDestination()
       source.connect(destination)
 
-      const mimeType = "audio/mpeg"
-      if (!MediaRecorder.isTypeSupported(mimeType)) {
-        resolve(audioBufferToWav(buffer))
-        return
-      }
-
       const mediaRecorder = new MediaRecorder(destination.stream, {
-        mimeType: mimeType,
+        mimeType: supportedMimeType,
         audioBitsPerSecond: 192000,
       })
 
@@ -138,8 +154,9 @@ async function audioBufferToMp3(buffer: AudioBuffer): Promise<Blob> {
       }
 
       mediaRecorder.onerror = (event) => {
-        console.error("MediaRecorder error:", event)
-        reject(new Error("Failed to encode MP3 using MediaRecorder"))
+        console.error("[v0] MediaRecorder error:", event)
+        // Fall back to WAV on error
+        resolve(audioBufferToWav(buffer))
       }
 
       mediaRecorder.start()
@@ -147,20 +164,24 @@ async function audioBufferToMp3(buffer: AudioBuffer): Promise<Blob> {
 
       setTimeout(
         () => {
-          mediaRecorder.stop()
-          source.stop()
-          audioContext.close()
+          try {
+            mediaRecorder.stop()
+            source.stop()
+            audioContext.close()
+          } catch (e) {
+            console.error("[v0] Error stopping MediaRecorder:", e)
+          }
         },
         (buffer.duration + 0.1) * 1000,
       )
     } catch (error) {
-      console.error("MP3 encoding error:", error)
-      reject(error)
+      console.error("[v0] MP3 encoding error:", error)
+      // Fall back to WAV
+      resolve(audioBufferToWav(buffer))
     }
   })
 }
 
-// Fallback for when FFmpeg isn't available
 async function extractAudioWithBrowserAPI(
   file: File,
   targetFormat: "mp3" | "wav" | "ogg" | "aac" | "flac" | "m4a",
@@ -170,96 +191,182 @@ async function extractAudioWithBrowserAPI(
     const arrayBuffer = await file.arrayBuffer()
     const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
 
+    // Try to use MediaRecorder for various formats
     if (targetFormat === "mp3") {
       return await audioBufferToMp3(audioBuffer)
     } else if (targetFormat === "wav") {
       return audioBufferToWav(audioBuffer)
+    } else if (targetFormat === "ogg" || targetFormat === "aac" || targetFormat === "m4a") {
+      // Try MediaRecorder with the requested format
+      return await encodeWithMediaRecorder(audioBuffer, targetFormat)
     } else {
-      throw new Error(
-        `${targetFormat.toUpperCase()} format requires FFmpeg.wasm in production. Try MP3 or WAV format instead.`,
-      )
+      // Default to WAV for unsupported formats
+      console.warn(`[v0] ${targetFormat.toUpperCase()} not supported, converting to WAV`)
+      return audioBufferToWav(audioBuffer)
     }
   } catch (error) {
-    console.error("Browser API audio extraction failed:", error)
+    console.error("[v0] Browser API audio extraction failed:", error)
     throw error
   }
+}
+
+async function encodeWithMediaRecorder(
+  buffer: AudioBuffer,
+  targetFormat: "ogg" | "aac" | "m4a" | "flac",
+): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    try {
+      const mimeTypeMap: Record<string, string[]> = {
+        ogg: ["audio/ogg", "audio/ogg;codecs=opus"],
+        aac: ["audio/aac", "audio/mp4", "audio/mp4;codecs=mp4a.40.2"],
+        m4a: ["audio/mp4", "audio/mp4;codecs=mp4a.40.2", "audio/aac"],
+        flac: ["audio/flac"],
+      }
+
+      const possibleTypes = mimeTypeMap[targetFormat] || []
+      let supportedMimeType: string | null = null
+
+      for (const type of possibleTypes) {
+        if (MediaRecorder.isTypeSupported(type)) {
+          supportedMimeType = type
+          break
+        }
+      }
+
+      // If format not supported, fall back to WAV
+      if (!supportedMimeType) {
+        console.warn(`[v0] ${targetFormat.toUpperCase()} encoding not supported by browser, converting to WAV instead`)
+        resolve(audioBufferToWav(buffer))
+        return
+      }
+
+      const audioContext = new AudioContext()
+      const source = audioContext.createBufferSource()
+      source.buffer = buffer
+
+      const destination = audioContext.createMediaStreamDestination()
+      source.connect(destination)
+
+      const mediaRecorder = new MediaRecorder(destination.stream, {
+        mimeType: supportedMimeType,
+        audioBitsPerSecond: 192000,
+      })
+
+      const chunks: Blob[] = []
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          chunks.push(event.data)
+        }
+      }
+
+      mediaRecorder.onstop = () => {
+        const outputBlob = new Blob(chunks, { type: supportedMimeType! })
+        resolve(outputBlob)
+      }
+
+      mediaRecorder.onerror = (event) => {
+        console.error(`[v0] MediaRecorder error for ${targetFormat}:`, event)
+        // Fall back to WAV on error
+        resolve(audioBufferToWav(buffer))
+      }
+
+      mediaRecorder.start()
+      source.start(0)
+
+      setTimeout(
+        () => {
+          try {
+            mediaRecorder.stop()
+            source.stop()
+            audioContext.close()
+          } catch (e) {
+            console.error("[v0] Error stopping MediaRecorder:", e)
+          }
+        },
+        (buffer.duration + 0.1) * 1000,
+      )
+    } catch (error) {
+      console.error(`[v0] ${targetFormat.toUpperCase()} encoding error:`, error)
+      // Fall back to WAV
+      resolve(audioBufferToWav(buffer))
+    }
+  })
 }
 
 export async function extractAudioFromVideo(
   file: File,
   targetFormat: "mp3" | "wav" | "ogg" | "aac" | "flac" | "m4a",
 ): Promise<Blob> {
+  // Try browser API first for better compatibility
   try {
-    const ffmpeg = await getFFmpeg()
+    console.log(`[v0] Attempting browser-based audio extraction to ${targetFormat}`)
+    return await extractAudioWithBrowserAPI(file, targetFormat)
+  } catch (browserError) {
+    console.warn("[v0] Browser API extraction failed, trying FFmpeg:", browserError)
 
-    const inputExt = file.name.split(".").pop() || "mp4"
-    const inputFileName = `input.${inputExt}`
-    const outputFileName = `output.${targetFormat}`
+    // Try FFmpeg as fallback
+    try {
+      const ffmpeg = await getFFmpeg()
 
-    await ffmpeg.writeFile(inputFileName, await fetchFile(file))
+      const inputExt = file.name.split(".").pop() || "mp4"
+      const inputFileName = `input.${inputExt}`
+      const outputFileName = `output.${targetFormat}`
 
-    let ffmpegArgs: string[] = []
+      await ffmpeg.writeFile(inputFileName, await fetchFile(file))
 
-    switch (targetFormat) {
-      case "mp3":
-        ffmpegArgs = ["-i", inputFileName, "-vn", "-acodec", "libmp3lame", "-b:a", "192k", outputFileName]
-        break
-      case "wav":
-        ffmpegArgs = ["-i", inputFileName, "-vn", "-acodec", "pcm_s16le", "-ar", "44100", outputFileName]
-        break
-      case "ogg":
-        ffmpegArgs = ["-i", inputFileName, "-vn", "-acodec", "libvorbis", "-b:a", "192k", outputFileName]
-        break
-      case "aac":
-        ffmpegArgs = ["-i", inputFileName, "-vn", "-acodec", "aac", "-b:a", "192k", outputFileName]
-        break
-      case "flac":
-        ffmpegArgs = ["-i", inputFileName, "-vn", "-acodec", "flac", outputFileName]
-        break
-      case "m4a":
-        ffmpegArgs = ["-i", inputFileName, "-vn", "-acodec", "aac", "-b:a", "192k", outputFileName]
-        break
-      default:
-        ffmpegArgs = ["-i", inputFileName, "-vn", "-acodec", "libmp3lame", "-b:a", "192k", outputFileName]
-    }
+      let ffmpegArgs: string[] = []
 
-    await ffmpeg.exec(ffmpegArgs)
-
-    const data = await ffmpeg.readFile(outputFileName)
-
-    await ffmpeg.deleteFile(inputFileName)
-    await ffmpeg.deleteFile(outputFileName)
-
-    const mimeTypes: Record<string, string> = {
-      mp3: "audio/mpeg",
-      wav: "audio/wav",
-      ogg: "audio/ogg",
-      aac: "audio/aac",
-      flac: "audio/flac",
-      m4a: "audio/mp4",
-    }
-
-    const mimeType = mimeTypes[targetFormat] || "audio/mpeg"
-    const blob = new Blob([data], { type: mimeType })
-
-    return blob
-  } catch (error) {
-    // Try browser fallback for MP3/WAV
-    if (targetFormat === "mp3" || targetFormat === "wav") {
-      try {
-        return await extractAudioWithBrowserAPI(file, targetFormat)
-      } catch (fallbackError) {
-        console.error("Browser API fallback failed:", fallbackError)
-        throw new Error(
-          `Unable to convert video to ${targetFormat.toUpperCase()}. ${fallbackError instanceof Error ? fallbackError.message : "Please try again."}`,
-        )
+      switch (targetFormat) {
+        case "mp3":
+          ffmpegArgs = ["-i", inputFileName, "-vn", "-acodec", "libmp3lame", "-b:a", "192k", outputFileName]
+          break
+        case "wav":
+          ffmpegArgs = ["-i", inputFileName, "-vn", "-acodec", "pcm_s16le", "-ar", "44100", outputFileName]
+          break
+        case "ogg":
+          ffmpegArgs = ["-i", inputFileName, "-vn", "-acodec", "libvorbis", "-b:a", "192k", outputFileName]
+          break
+        case "aac":
+          ffmpegArgs = ["-i", inputFileName, "-vn", "-acodec", "aac", "-b:a", "192k", outputFileName]
+          break
+        case "flac":
+          ffmpegArgs = ["-i", inputFileName, "-vn", "-acodec", "flac", outputFileName]
+          break
+        case "m4a":
+          ffmpegArgs = ["-i", inputFileName, "-vn", "-acodec", "aac", "-b:a", "192k", outputFileName]
+          break
+        default:
+          ffmpegArgs = ["-i", inputFileName, "-vn", "-acodec", "libmp3lame", "-b:a", "192k", outputFileName]
       }
-    }
 
-    throw new Error(
-      `${targetFormat.toUpperCase()} conversion requires FFmpeg.wasm in production. ` +
-        `Try converting to MP3 or WAV format instead, which work in all environments.`,
-    )
+      await ffmpeg.exec(ffmpegArgs)
+
+      const data = await ffmpeg.readFile(outputFileName)
+
+      await ffmpeg.deleteFile(inputFileName)
+      await ffmpeg.deleteFile(outputFileName)
+
+      const mimeTypes: Record<string, string> = {
+        mp3: "audio/mpeg",
+        wav: "audio/wav",
+        ogg: "audio/ogg",
+        aac: "audio/aac",
+        flac: "audio/flac",
+        m4a: "audio/mp4",
+      }
+
+      const mimeType = mimeTypes[targetFormat] || "audio/mpeg"
+      const blob = new Blob([data], { type: mimeType })
+
+      return blob
+    } catch (ffmpegError) {
+      console.error("[v0] FFmpeg extraction also failed:", ffmpegError)
+      throw new Error(
+        `Unable to extract audio from video. The browser API and FFmpeg both failed. ` +
+          `This may be due to an unsupported video format or codec.`,
+      )
+    }
   }
 }
 
@@ -267,6 +374,17 @@ export async function convertVideo(
   file: File,
   targetFormat: "mp4" | "webm" | "avi" | "mov" | "mkv" | "flv",
 ): Promise<Blob> {
+  // Try browser-based conversion for WebM
+  if (targetFormat === "webm") {
+    try {
+      console.log("[v0] Attempting browser-based video conversion to WebM")
+      return await convertVideoWithBrowser(file, targetFormat)
+    } catch (browserError) {
+      console.warn("[v0] Browser conversion failed, trying FFmpeg:", browserError)
+    }
+  }
+
+  // Use FFmpeg for all other formats or if browser conversion failed
   try {
     const ffmpeg = await getFFmpeg()
 
@@ -378,9 +496,94 @@ export async function convertVideo(
 
     return blob
   } catch (error) {
-    console.error("Video conversion error:", error)
-    throw new Error(`Failed to convert video: ${error instanceof Error ? error.message : "Unknown error"}`)
+    console.error("[v0] Video conversion error:", error)
+    throw new Error(
+      `Video conversion requires FFmpeg.wasm which needs cross-origin isolation. ` +
+        `This works automatically in production deployments. ` +
+        `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
+    )
   }
+}
+
+async function convertVideoWithBrowser(file: File, targetFormat: "webm"): Promise<Blob> {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const video = document.createElement("video")
+      video.src = URL.createObjectURL(file)
+      video.muted = true
+
+      await new Promise((res, rej) => {
+        video.onloadedmetadata = () => res(null)
+        video.onerror = () => rej(new Error("Failed to load video"))
+      })
+
+      const canvas = document.createElement("canvas")
+      canvas.width = video.videoWidth
+      canvas.height = video.videoHeight
+      const ctx = canvas.getContext("2d")!
+
+      const stream = canvas.captureStream(30)
+
+      // Add audio track if available
+      const audioContext = new AudioContext()
+      const source = audioContext.createMediaElementSource(video)
+      const destination = audioContext.createMediaStreamDestination()
+      source.connect(destination)
+
+      if (destination.stream.getAudioTracks().length > 0) {
+        destination.stream.getAudioTracks().forEach((track) => stream.addTrack(track))
+      }
+
+      const mimeType = "video/webm;codecs=vp9,opus"
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        throw new Error("WebM encoding not supported by browser")
+      }
+
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType,
+        videoBitsPerSecond: 2500000,
+      })
+
+      const chunks: Blob[] = []
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          chunks.push(event.data)
+        }
+      }
+
+      mediaRecorder.onstop = () => {
+        const webmBlob = new Blob(chunks, { type: "video/webm" })
+        URL.revokeObjectURL(video.src)
+        resolve(webmBlob)
+      }
+
+      mediaRecorder.onerror = (event) => {
+        console.error("[v0] MediaRecorder error:", event)
+        URL.revokeObjectURL(video.src)
+        reject(new Error("Failed to encode video"))
+      }
+
+      mediaRecorder.start()
+      video.play()
+
+      // Draw frames
+      const drawFrame = () => {
+        if (!video.paused && !video.ended) {
+          ctx.drawImage(video, 0, 0)
+          requestAnimationFrame(drawFrame)
+        }
+      }
+      drawFrame()
+
+      video.onended = () => {
+        mediaRecorder.stop()
+        audioContext.close()
+      }
+    } catch (error) {
+      reject(error)
+    }
+  })
 }
 
 let ffmpegInstance: FFmpeg | null = null

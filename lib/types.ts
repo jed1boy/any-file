@@ -31,10 +31,10 @@ export const CONVERSION_OPTIONS: ConversionOption[] = [
   { from: "docx", to: ["pdf", "txt"] },
   { from: "xlsx", to: ["pdf"] },
   { from: "txt", to: ["pdf", "docx"] },
-  { from: "jpg", to: ["png", "webp", "pdf"] },
-  { from: "jpeg", to: ["png", "webp", "pdf"] },
-  { from: "png", to: ["jpg", "webp", "pdf"] },
-  { from: "webp", to: ["jpg", "png", "pdf"] },
+  { from: "jpg", to: ["png", "webp", "pdf", "txt"] }, // Added txt for OCR
+  { from: "jpeg", to: ["png", "webp", "pdf", "txt"] }, // Added txt for OCR
+  { from: "png", to: ["jpg", "webp", "pdf", "txt"] }, // Added txt for OCR
+  { from: "webp", to: ["jpg", "png", "pdf", "txt"] }, // Added txt for OCR
   { from: "gif", to: ["png", "jpg", "webp"] },
   { from: "mp3", to: ["wav", "ogg", "aac", "flac", "m4a"] },
   { from: "wav", to: ["mp3", "ogg", "aac", "flac", "m4a"] },

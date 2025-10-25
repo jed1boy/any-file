@@ -2,10 +2,12 @@ import type { FileFormat } from "@/lib/types"
 import { pdfToImages, pdfToText, imageToPdf } from "./pdf-converter"
 import { convertImage } from "./image-converter"
 import { convertAudio, convertVideo, extractAudioFromVideo } from "./media-converter"
+import { imageToText } from "./ocr-converter"
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib"
 import jsPDF from "jspdf"
 // @ts-ignore - docshift types
 import { toHtml } from "docshift"
+import mammoth from "mammoth"
 
 // pdf-lib's WinAnsi encoding can't handle all Unicode characters
 function sanitizeTextForPdf(text: string): string {
@@ -117,89 +119,211 @@ async function docxToText(file: File): Promise<Blob> {
 
 async function docxToPdf(file: File): Promise<Blob> {
   try {
-    const html2canvas = (await import("html2canvas")).default
+    console.log("[v0] Starting DOCX to PDF conversion...")
 
-    const html = await toHtml(file)
+    console.log("[v0] Converting DOCX to HTML with mammoth...")
+    const arrayBuffer = await file.arrayBuffer()
+    const result = await mammoth.convertToHtml({ arrayBuffer })
+    const html = result.value
 
-    // Render HTML off-screen to convert to PDF
-    const container = document.createElement("div")
-    container.style.position = "absolute"
-    container.style.left = "-9999px"
-    container.style.top = "0"
-    container.style.width = "210mm"
-    container.style.padding = "20mm"
-    container.style.backgroundColor = "white"
-    container.style.fontFamily = "Arial, sans-serif"
-    container.style.fontSize = "12pt"
-    container.style.lineHeight = "1.5"
-    container.innerHTML = html
+    console.log("[v0] HTML generated, length:", html.length)
 
-    document.body.appendChild(container)
-
-    try {
-      const images = container.querySelectorAll("img")
-
-      if (images.length > 0) {
-        await Promise.all(
-          Array.from(images).map((img) => {
-            return new Promise<void>((resolve) => {
-              if (img.complete) {
-                resolve()
-              } else {
-                img.onload = () => resolve()
-                img.onerror = () => resolve()
-                setTimeout(() => resolve(), 5000)
-              }
-            })
-          }),
-        )
-      }
-
-      const canvas = await html2canvas(container, {
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        logging: false,
-        backgroundColor: "#ffffff",
-        imageTimeout: 15000,
-        removeContainer: false,
-      })
-
-      const imgData = canvas.toDataURL("image/png")
-      const pdf = new jsPDF({
-        orientation: "portrait",
-        unit: "mm",
-        format: "a4",
-      })
-
-      const imgWidth = 210
-      const pageHeight = 297
-      const imgHeight = (canvas.height * imgWidth) / canvas.width
-      let heightLeft = imgHeight
-      let position = 0
-
-      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight)
-      heightLeft -= pageHeight
-
-      while (heightLeft > 0) {
-        position = heightLeft - imgHeight
-        pdf.addPage()
-        pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight)
-        heightLeft -= pageHeight
-      }
-
-      const pdfBlob = pdf.output("blob")
-      return pdfBlob
-    } finally {
-      document.body.removeChild(container)
+    if (result.messages.length > 0) {
+      console.log("[v0] Conversion messages:", result.messages)
     }
+
+    // Convert HTML to plain text for better PDF rendering
+    const text = htmlToText(html)
+    console.log("[v0] Extracted text length:", text.length)
+
+    // Create PDF using jsPDF with proper text rendering
+    const pdf = new jsPDF({
+      orientation: "portrait",
+      unit: "pt",
+      format: "a4",
+      compress: true,
+    })
+
+    const pageWidth = pdf.internal.pageSize.getWidth()
+    const pageHeight = pdf.internal.pageSize.getHeight()
+    const margin = 40
+    const maxWidth = pageWidth - 2 * margin
+    const fontSize = 11
+    const lineHeight = fontSize * 1.5
+
+    pdf.setFontSize(fontSize)
+    pdf.setTextColor(0, 0, 0) // Ensure black text
+
+    let yPosition = margin
+    const lines = text.split("\n")
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+
+      // Handle empty lines (paragraph breaks)
+      if (!line.trim()) {
+        yPosition += lineHeight * 0.5
+        continue
+      }
+
+      // Split long lines to fit page width
+      const words = line.split(" ")
+      let currentLine = ""
+
+      for (const word of words) {
+        const testLine = currentLine + (currentLine ? " " : "") + word
+        const textWidth = pdf.getTextWidth(testLine)
+
+        if (textWidth > maxWidth && currentLine) {
+          // Check if we need a new page
+          if (yPosition + lineHeight > pageHeight - margin) {
+            pdf.addPage()
+            yPosition = margin
+          }
+
+          pdf.text(currentLine, margin, yPosition)
+          yPosition += lineHeight
+          currentLine = word
+        } else {
+          currentLine = testLine
+        }
+      }
+
+      // Print remaining text
+      if (currentLine) {
+        // Check if we need a new page
+        if (yPosition + lineHeight > pageHeight - margin) {
+          pdf.addPage()
+          yPosition = margin
+        }
+
+        pdf.text(currentLine, margin, yPosition)
+        yPosition += lineHeight
+      }
+    }
+
+    console.log("[v0] PDF created with", pdf.getNumberOfPages(), "page(s)")
+
+    const pdfBlob = pdf.output("blob")
+    console.log("[v0] PDF generated successfully, size:", pdfBlob.size, "bytes")
+    return pdfBlob
   } catch (error) {
-    console.error("Error converting DOCX to PDF:", error)
+    console.error("[v0] Error converting DOCX to PDF:", error)
     throw new Error("Failed to convert DOCX to PDF. The file may be corrupted or in an unsupported format.")
   }
 }
 
+async function pdfToDocx(file: File): Promise<Blob> {
+  try {
+    console.log("[v0] Starting PDF to DOCX conversion...")
+
+    // Dynamic imports for browser-only libraries
+    const pdfjsLib = await import("pdfjs-dist")
+    const { Document, Paragraph, TextRun, Packer } = await import("docx")
+
+    // Set up PDF.js worker
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`
+
+    const arrayBuffer = await file.arrayBuffer()
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
+    console.log("[v0] PDF loaded, pages:", pdf.numPages)
+
+    const paragraphs: any[] = []
+
+    // Extract text from each page
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+      const page = await pdf.getPage(pageNum)
+      const textContent = await page.getTextContent()
+
+      console.log("[v0] Processing page", pageNum, "items:", textContent.items.length)
+
+      // Group text items into lines
+      let currentLine = ""
+      let lastY = -1
+
+      for (const item of textContent.items) {
+        if ("str" in item) {
+          const y = item.transform[5]
+
+          // New line detected (different Y position)
+          if (lastY !== -1 && Math.abs(y - lastY) > 5) {
+            if (currentLine.trim()) {
+              paragraphs.push(
+                new Paragraph({
+                  children: [new TextRun(currentLine.trim())],
+                  spacing: { after: 200 },
+                }),
+              )
+            }
+            currentLine = item.str
+          } else {
+            currentLine += item.str
+          }
+
+          lastY = y
+        }
+      }
+
+      // Add the last line
+      if (currentLine.trim()) {
+        paragraphs.push(
+          new Paragraph({
+            children: [new TextRun(currentLine.trim())],
+            spacing: { after: 200 },
+          }),
+        )
+      }
+
+      // Add page break except for last page
+      if (pageNum < pdf.numPages) {
+        paragraphs.push(
+          new Paragraph({
+            children: [new TextRun("")],
+            pageBreakBefore: true,
+          }),
+        )
+      }
+    }
+
+    console.log("[v0] Creating DOCX document with", paragraphs.length, "paragraphs")
+
+    // Create DOCX document
+    const doc = new Document({
+      sections: [
+        {
+          properties: {},
+          children: paragraphs,
+        },
+      ],
+    })
+
+    // Generate DOCX blob
+    const blob = await Packer.toBlob(doc)
+    console.log("[v0] DOCX generated successfully, size:", blob.size, "bytes")
+
+    return blob
+  } catch (error) {
+    console.error("[v0] Error converting PDF to DOCX:", error)
+    throw new Error("Failed to convert PDF to DOCX. The file may be corrupted or password-protected.")
+  }
+}
+
 export async function convertFile(file: File, sourceFormat: FileFormat, targetFormat: FileFormat): Promise<Blob> {
+  // DOCX to PDF conversion
+  if (sourceFormat === "docx" && targetFormat === "pdf") {
+    return await docxToPdf(file)
+  }
+
+  // DOCX to TXT conversion
+  if (sourceFormat === "docx" && targetFormat === "txt") {
+    return await docxToText(file)
+  }
+
+  // TXT to PDF conversion
+  if (sourceFormat === "txt" && targetFormat === "pdf") {
+    return await textToPdf(file)
+  }
+
   // PDF conversions
   if (sourceFormat === "pdf" && (targetFormat === "jpg" || targetFormat === "png")) {
     const images = await pdfToImages(file, targetFormat)
@@ -211,31 +335,13 @@ export async function convertFile(file: File, sourceFormat: FileFormat, targetFo
     return new Blob([text], { type: "text/plain" })
   }
 
-  if (sourceFormat === "pdf" && (targetFormat === "docx" || targetFormat === "xlsx")) {
+  if (sourceFormat === "pdf" && targetFormat === "docx") {
+    return await pdfToDocx(file)
+  }
+
+  if (sourceFormat === "pdf" && targetFormat === "xlsx") {
     throw new Error(
-      `PDF to ${targetFormat.toUpperCase()} conversion is not yet implemented. Currently supported: PDF → TXT, PDF → JPG/PNG`,
-    )
-  }
-
-  if (sourceFormat === "txt" && targetFormat === "pdf") {
-    return await textToPdf(file)
-  }
-
-  if (sourceFormat === "txt" && targetFormat === "docx") {
-    throw new Error("TXT to DOCX conversion is not yet implemented. Currently supported: TXT → PDF")
-  }
-
-  if (sourceFormat === "docx" && targetFormat === "txt") {
-    return await docxToText(file)
-  }
-
-  if (sourceFormat === "docx" && targetFormat === "pdf") {
-    return await docxToPdf(file)
-  }
-
-  if (sourceFormat === "xlsx" && targetFormat === "pdf") {
-    throw new Error(
-      "XLSX to PDF conversion is not yet implemented. Please use a spreadsheet application to export to PDF.",
+      "PDF to XLSX conversion is not yet implemented. Currently supported: PDF → TXT, PDF → DOCX, PDF → JPG/PNG",
     )
   }
 
@@ -251,14 +357,25 @@ export async function convertFile(file: File, sourceFormat: FileFormat, targetFo
     return await imageToPdf(file)
   }
 
-  // Image format conversions
+  // Image to text OCR conversion
+  if (
+    (sourceFormat === "jpg" || sourceFormat === "jpeg" || sourceFormat === "png" || sourceFormat === "webp") &&
+    targetFormat === "txt"
+  ) {
+    return await imageToText(file)
+  }
+
   if (
     (sourceFormat === "jpg" ||
       sourceFormat === "jpeg" ||
       sourceFormat === "png" ||
       sourceFormat === "webp" ||
       sourceFormat === "gif") &&
-    (targetFormat === "jpg" || targetFormat === "jpeg" || targetFormat === "png" || targetFormat === "webp")
+    (targetFormat === "jpg" ||
+      targetFormat === "jpeg" ||
+      targetFormat === "png" ||
+      targetFormat === "webp" ||
+      targetFormat === "gif")
   ) {
     return await convertImage(file, targetFormat)
   }
@@ -278,16 +395,11 @@ export async function convertFile(file: File, sourceFormat: FileFormat, targetFo
       targetFormat === "flac" ||
       targetFormat === "m4a")
   ) {
-    // MP3/WAV conversions work everywhere using browser APIs
-    if ((sourceFormat === "mp3" || sourceFormat === "wav") && (targetFormat === "mp3" || targetFormat === "wav")) {
-      return await convertAudio(file, targetFormat)
-    }
-
-    // Other formats need FFmpeg
-    return await extractAudioFromVideo(file, targetFormat)
+    // Use browser-based conversion for all audio formats
+    return await convertAudio(file, targetFormat as any)
   }
 
-  // Video to audio
+  // Video to Audio conversion
   if (
     (sourceFormat === "mp4" ||
       sourceFormat === "webm" ||

@@ -1,5 +1,6 @@
 import Link from "next/link"
 import { Github } from "lucide-react"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 
 export function Navbar() {
   return (
@@ -18,15 +19,36 @@ export function Navbar() {
             </svg>
           </Link>
 
-          <Link
-            href="https://github.com/jed1boy/any-file"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-muted-foreground hover:text-foreground transition-colors"
-            aria-label="GitHub"
-          >
-            <Github className="w-5 h-5" />
-          </Link>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              className="text-muted-foreground hover:text-foreground transition-colors outline-none focus-visible:outline-none focus:outline-none"
+              aria-label="GitHub"
+            >
+              <Github className="w-5 h-5" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="center">
+              <DropdownMenuItem asChild>
+                <Link
+                  href="https://github.com/jed1boy/any-file"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="cursor-pointer"
+                >
+                  Go to source code
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link
+                  href="https://github.com/jed1boy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="cursor-pointer"
+                >
+                  Sponsor me
+                </Link>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
     </nav>
