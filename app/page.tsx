@@ -10,7 +10,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import type { FileFormat } from "@/lib/types"
 import { ArrowRight } from "lucide-react"
 import { useFileContext } from "@/lib/file-context"
-import { MeshGradient } from "@paper-design/shaders-react"
+import { AnimatedBackground } from "@/components/animated-background"
+import { InteractiveText } from "@/components/interactive-text"
 
 export default function HomePage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
@@ -39,17 +40,17 @@ export default function HomePage() {
   }
 
   return (
-    <div className="bg-background relative overflow-hidden pt-14">
-      <div className="absolute inset-0 opacity-20 pointer-events-none">
-        <MeshGradient colors={["#000000", "#1a1a1a", "#0070f3", "#000000"]} speed={0.01} />
+    <div className="bg-background relative overflow-hidden min-h-screen flex items-center justify-center">
+      <div className="absolute inset-0 opacity-40 pointer-events-none">
+        <AnimatedBackground />
       </div>
 
-      <main className="relative z-10">
+      <main className="relative z-10 w-full">
         <div className="container mx-auto px-4 py-8 md:py-16">
           <div className="max-w-4xl mx-auto space-y-12 md:space-y-16">
             <div className="text-center space-y-6 md:space-y-8 cursor-default">
               <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-balance leading-[1.2]">
-                Convert your files <span className="highlight-privately">privately</span>.
+                Convert your files <InteractiveText>privately</InteractiveText>.
                 <br />
                 Your data never leaves <span className="whitespace-nowrap">your device</span>.
               </h1>

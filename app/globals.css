@@ -189,46 +189,5 @@
 }
 
 @layer utilities {
-  .highlight-privately {
-    position: relative;
-    display: inline-block;
-    opacity: 0;
-    transition: opacity 0.3s ease 0.2s;
-  }
-
-  .highlight-privately:hover {
-    opacity: 1;
-  }
-
-  .highlight-privately::before {
-    content: "";
-    position: absolute;
-    inset: -0.1em -0.25em;
-    background: linear-gradient(135deg, rgba(0, 112, 243, 0.2), rgba(0, 168, 255, 0.2));
-    border-radius: 0.375rem;
-    opacity: 0;
-    transition: opacity 0.3s ease;
-    z-index: -1;
-    box-shadow: 0 0 20px rgba(0, 112, 243, 0.3);
-  }
-
-  .highlight-privately:hover::before {
-    opacity: 1;
-  }
-
-  .highlight-privately::after {
-    content: "";
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 2px;
-    background: linear-gradient(90deg, transparent, #0070f3, #00a8ff, transparent);
-    transform: scaleX(0);
-    transition: transform 0.4s ease 0.15s;
-  }
-
-  .highlight-privately:hover::after {
-    transform: scaleX(1);
-  }
+  /* Removed highlight-privately styles as they're now handled by InteractiveText component */
 }
