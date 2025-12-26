@@ -1,3 +1,7 @@
+const CONTRAST_SCALE_BASE = 259
+const MAX_CHANNEL_VALUE = 255
+const GRAYSCALE_WEIGHTS = { r: 0.299, g: 0.587, b: 0.114 }
+
 export interface RetryOptions {
   retries: number
   delayMs: number
@@ -12,7 +16,7 @@ export function estimateThreshold(data: Uint8ClampedArray): number {
   let count = 0
 
   for (let i = 0; i < data.length; i += 4) {
-    const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]
+    const gray = GRAYSCALE_WEIGHTS.r * data[i] + GRAYSCALE_WEIGHTS.g * data[i + 1] + GRAYSCALE_WEIGHTS.b * data[i + 2]
     sum += gray
     count++
   }
@@ -25,7 +29,7 @@ export function applyContrastAndThreshold(
   contrast = 1.2,
   threshold = estimateThreshold(data),
 ): Uint8ClampedArray {
-  const factor = (259 * (contrast + 255)) / (255 * (259 - contrast))
+  const factor = (CONTRAST_SCALE_BASE * (contrast + MAX_CHANNEL_VALUE)) / (MAX_CHANNEL_VALUE * (CONTRAST_SCALE_BASE - contrast))
   const output = new Uint8ClampedArray(data.length)
 
   for (let i = 0; i < data.length; i += 4) {
@@ -33,7 +37,8 @@ export function applyContrastAndThreshold(
     const contrastedGreen = clampChannel(factor * (data[i + 1] - 128) + 128)
     const contrastedBlue = clampChannel(factor * (data[i + 2] - 128) + 128)
 
-    const gray = 0.299 * contrastedRed + 0.587 * contrastedGreen + 0.114 * contrastedBlue
+    const gray =
+      GRAYSCALE_WEIGHTS.r * contrastedRed + GRAYSCALE_WEIGHTS.g * contrastedGreen + GRAYSCALE_WEIGHTS.b * contrastedBlue
     const value = gray >= threshold ? 255 : 0
 
     output[i] = value

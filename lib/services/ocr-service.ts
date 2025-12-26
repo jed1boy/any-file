@@ -38,6 +38,9 @@ class OCRServiceError extends Error {
   }
 }
 
+const DEFAULT_RETRY_ATTEMPTS = 2
+const DEFAULT_RETRY_DELAY_MS = 300
+
 export class DeepSeekOCRService {
   private apiEndpoint = "https://api.deepseek.com"
 
@@ -210,7 +213,7 @@ export class DeepSeekOCRService {
 
       const deepSeekResult = await withRetry(
         () => this.runDeepSeekOCR(processedImage, apiKey, options),
-        { retries: options.retryAttempts ?? 2, delayMs: options.retryDelayMs ?? 300 },
+        { retries: options.retryAttempts ?? DEFAULT_RETRY_ATTEMPTS, delayMs: options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS },
         (error, attempt) => console.warn(`[v0] OCR: DeepSeek attempt ${attempt} failed`, error),
       )
 
