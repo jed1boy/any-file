@@ -5,6 +5,7 @@
  */
 
 import { getDeepSeekApiKey } from "../utils/storage"
+import { applyContrastAndThreshold, estimateThreshold, withRetry } from "./ocr-utils"
 
 interface OCRResult {
   text: string
@@ -26,6 +27,13 @@ interface OCROptions {
   preserveLayout?: boolean
 }
 
+class OCRServiceError extends Error {
+  constructor(message: string, public readonly cause?: unknown) {
+    super(message)
+    this.name = "OCRServiceError"
+  }
+}
+
 export class DeepSeekOCRService {
   private apiEndpoint = "https://api.deepseek.com"
 
@@ -42,62 +50,50 @@ export class DeepSeekOCRService {
     return new Promise((resolve, reject) => {
       const img = new Image()
       const canvas = document.createElement("canvas")
-      const ctx = canvas.getContext("2d")!
+      const ctx = canvas.getContext("2d")
 
-      img.onload = () => {
-        // Set canvas size to image size
-        canvas.width = img.width
-        canvas.height = img.height
-
-        // Draw original image
-        ctx.drawImage(img, 0, 0)
-
-        // Get image data for processing
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-        const data = imageData.data
-
-        // Apply image enhancements
-        // 1. Increase contrast
-        const contrast = 1.2
-        const factor = (259 * (contrast + 255)) / (255 * (259 - contrast))
-
-        for (let i = 0; i < data.length; i += 4) {
-          data[i] = factor * (data[i] - 128) + 128 // Red
-          data[i + 1] = factor * (data[i + 1] - 128) + 128 // Green
-          data[i + 2] = factor * (data[i + 2] - 128) + 128 // Blue
-        }
-
-        // 2. Convert to grayscale for better text recognition
-        for (let i = 0; i < data.length; i += 4) {
-          const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]
-          data[i] = gray
-          data[i + 1] = gray
-          data[i + 2] = gray
-        }
-
-        // 3. Apply sharpening
-        const sharpenKernel = [0, -1, 0, -1, 5, -1, 0, -1, 0]
-        const sharpened = this.applyConvolution(imageData, sharpenKernel, 3)
-
-        // Put processed image back
-        ctx.putImageData(sharpened, 0, 0)
-
-        // Convert canvas to blob
-        canvas.toBlob(
-          (blob) => {
-            if (blob) {
-              console.log("[v0] OCR: Image pre-processing completed")
-              resolve(blob)
-            } else {
-              reject(new Error("Failed to create blob from canvas"))
-            }
-          },
-          "image/png",
-          0.95,
-        )
+      if (!ctx) {
+        reject(new OCRServiceError("Unable to initialize canvas context"))
+        return
       }
 
-      img.onerror = () => reject(new Error("Failed to load image"))
+      img.onload = () => {
+        try {
+          canvas.width = img.width
+          canvas.height = img.height
+
+          ctx.drawImage(img, 0, 0)
+
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+          const threshold = estimateThreshold(imageData.data)
+          const enhancedData = applyContrastAndThreshold(imageData.data, 1.2, threshold)
+          const sharpenKernel = [0, -1, 0, -1, 5, -1, 0, -1, 0]
+          const sharpened = this.applyConvolution(
+            new ImageData(enhancedData, canvas.width, canvas.height),
+            sharpenKernel,
+            3,
+          )
+
+          ctx.putImageData(sharpened, 0, 0)
+
+          canvas.toBlob(
+            (blob) => {
+              if (blob) {
+                console.log("[v0] OCR: Image pre-processing completed")
+                resolve(blob)
+              } else {
+                reject(new OCRServiceError("Failed to create blob from canvas"))
+              }
+            },
+            "image/png",
+            0.95,
+          )
+        } catch (error) {
+          reject(new OCRServiceError("Pre-processing failed", error))
+        }
+      }
+
+      img.onerror = () => reject(new OCRServiceError("Failed to load image"))
       img.src = URL.createObjectURL(imageBlob)
     })
   }
@@ -208,53 +204,22 @@ export class DeepSeekOCRService {
         return await this.fallbackOCR(processedImage, options)
       }
 
-      // Upload image to DeepSeek
-      const formData = new FormData()
-      formData.append("file", processedImage, "image.png")
+      const deepSeekResult = await withRetry(
+        () => this.runDeepSeekOCR(processedImage, apiKey, options),
+        { retries: 2, delayMs: 300 },
+        (error, attempt) => console.warn(`[v0] OCR: DeepSeek attempt ${attempt} failed`, error),
+      )
 
-      const uploadResponse = await fetch(`${this.apiEndpoint}/upload`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: formData,
-      })
-
-      if (!uploadResponse.ok) {
-        throw new Error(`Upload failed: ${uploadResponse.statusText}`)
-      }
-
-      const { fileId } = await uploadResponse.json()
-      console.log("[v0] OCR: Image uploaded, file ID:", fileId)
-
-      // Parse content using DeepSeek OCR
-      const parseResponse = await fetch(`${this.apiEndpoint}/parse/${fileId}`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          language: options.language || "auto",
-          preserve_layout: options.preserveLayout || false,
-        }),
-      })
-
-      if (!parseResponse.ok) {
-        throw new Error(`Parse failed: ${parseResponse.statusText}`)
-      }
-
-      const result = await parseResponse.json()
       console.log("[v0] OCR: Text extraction completed")
 
       // Post-process the extracted text
-      const processedText = this.postprocessText(result.text || "")
+      const processedText = this.postprocessText(deepSeekResult.text || "")
 
       return {
         text: processedText,
-        confidence: result.confidence || 0.95,
-        language: result.language,
-        blocks: result.blocks,
+        confidence: deepSeekResult.confidence || 0.95,
+        language: deepSeekResult.language,
+        blocks: deepSeekResult.blocks,
       }
     } catch (error) {
       console.error("[v0] OCR: Error during extraction:", error)
@@ -264,25 +229,63 @@ export class DeepSeekOCRService {
     }
   }
 
+  private async runDeepSeekOCR(image: Blob, apiKey: string, options: OCROptions): Promise<OCRResult> {
+    const formData = new FormData()
+    formData.append("file", image, "image.png")
+
+    const uploadResponse = await fetch(`${this.apiEndpoint}/upload`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: formData,
+    })
+
+    if (!uploadResponse.ok) {
+      throw new OCRServiceError(`Upload failed: ${uploadResponse.statusText}`)
+    }
+
+    const { fileId } = await uploadResponse.json()
+    console.log("[v0] OCR: Image uploaded, file ID:", fileId)
+
+    const parseResponse = await fetch(`${this.apiEndpoint}/parse/${fileId}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        language: options.language || "auto",
+        preserve_layout: options.preserveLayout || false,
+      }),
+    })
+
+    if (!parseResponse.ok) {
+      throw new OCRServiceError(`Parse failed: ${parseResponse.statusText}`)
+    }
+
+    return await parseResponse.json()
+  }
+
   /**
    * Fallback OCR using Tesseract.js (browser-based)
    */
   private async fallbackOCR(imageBlob: Blob, options: OCROptions): Promise<OCRResult> {
     console.log("[v0] OCR: Using Tesseract.js for text extraction")
 
+    let worker: any | null = null
+    let imageUrl: string | null = null
+
     try {
       // Dynamic import to avoid build issues
       const Tesseract = await import("tesseract.js")
 
-      const worker = await Tesseract.createWorker(options.language || "eng")
+      worker = await Tesseract.createWorker(options.language || "eng")
 
-      const imageUrl = URL.createObjectURL(imageBlob)
+      imageUrl = URL.createObjectURL(imageBlob)
       const {
         data: { text, confidence },
       } = await worker.recognize(imageUrl)
-
-      await worker.terminate()
-      URL.revokeObjectURL(imageUrl)
 
       // Post-process the extracted text
       const processedText = this.postprocessText(text)
@@ -296,7 +299,19 @@ export class DeepSeekOCRService {
       }
     } catch (error) {
       console.error("[v0] OCR: Tesseract.js failed:", error)
-      throw new Error("OCR extraction failed")
+      throw new OCRServiceError("OCR extraction failed", error)
+    } finally {
+      if (worker) {
+        try {
+          await worker.terminate()
+        } catch (terminateError) {
+          console.warn("[v0] OCR: Failed to terminate Tesseract worker", terminateError)
+        }
+      }
+
+      if (imageUrl) {
+        URL.revokeObjectURL(imageUrl)
+      }
     }
   }
 
