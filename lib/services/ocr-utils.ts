@@ -1,5 +1,6 @@
 const CONTRAST_SCALE_BASE = 259
 const MAX_CHANNEL_VALUE = 255
+const MIN_CHANNEL_VALUE = 0
 const GRAYSCALE_WEIGHTS = { r: 0.299, g: 0.587, b: 0.114 }
 
 export interface RetryOptions {
@@ -7,7 +8,7 @@ export interface RetryOptions {
   delayMs: number
 }
 
-const clampChannel = (value: number): number => Math.min(255, Math.max(0, value))
+const clampChannel = (value: number): number => Math.min(MAX_CHANNEL_VALUE, Math.max(MIN_CHANNEL_VALUE, value))
 
 export function estimateThreshold(data: Uint8ClampedArray): number {
   if (data.length === 0) return 128
@@ -29,7 +30,9 @@ export function applyContrastAndThreshold(
   contrast = 1.2,
   threshold = estimateThreshold(data),
 ): Uint8ClampedArray {
-  const factor = (CONTRAST_SCALE_BASE * (contrast + MAX_CHANNEL_VALUE)) / (MAX_CHANNEL_VALUE * (CONTRAST_SCALE_BASE - contrast))
+  // Standard contrast adjustment formula derived from image processing basics
+  const factor =
+    (CONTRAST_SCALE_BASE * (contrast + MAX_CHANNEL_VALUE)) / (MAX_CHANNEL_VALUE * (CONTRAST_SCALE_BASE - contrast))
   const output = new Uint8ClampedArray(data.length)
 
   for (let i = 0; i < data.length; i += 4) {

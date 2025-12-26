@@ -6,6 +6,7 @@
 
 import { getDeepSeekApiKey } from "../utils/storage"
 import { applyContrastAndThreshold, estimateThreshold, withRetry } from "./ocr-utils"
+type TesseractWorker = import("tesseract.js").Worker
 
 interface OCRResult {
   text: string
@@ -28,8 +29,6 @@ interface OCROptions {
   retryAttempts?: number
   retryDelayMs?: number
 }
-
-type TesseractWorker = import("tesseract.js").Worker
 
 class OCRServiceError extends Error {
   constructor(message: string, public readonly cause?: unknown) {

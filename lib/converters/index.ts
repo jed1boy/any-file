@@ -69,7 +69,7 @@ function ensureFileMatchesFormat(file: File, sourceFormat: FileFormat): void {
     throw new ConversionError(
       `File extension ".${extension}" does not match declared source format "${sourceFormat}". Please select the correct file.`,
       sourceFormat,
-      extension as FileFormat,
+      undefined,
     )
   }
 }
@@ -369,7 +369,7 @@ export async function convertFile(file: File, sourceFormat: FileFormat, targetFo
       const images = await pdfToImages(file, targetFormat)
       if (!images.length) {
         throw new ConversionError(
-          "Unable to render PDF pages. Please verify the document is valid and not password-protected.",
+          "Unable to render PDF pages. The document may be empty, corrupted, password-protected, or use unsupported features.",
           sourceFormat,
           targetFormat,
         )
