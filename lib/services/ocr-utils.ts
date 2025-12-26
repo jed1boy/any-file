@@ -3,6 +3,11 @@ const MAX_CHANNEL_VALUE = 255
 const MIN_CHANNEL_VALUE = 0
 const GRAYSCALE_WEIGHTS = { r: 0.299, g: 0.587, b: 0.114 }
 
+/**
+ * Configuration for retrying operations.
+ * @property retries Number of retry attempts in addition to the initial attempt.
+ * @property delayMs Base delay in milliseconds before each retry attempt.
+ */
 export interface RetryOptions {
   retries: number
   delayMs: number

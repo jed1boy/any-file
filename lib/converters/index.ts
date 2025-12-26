@@ -53,19 +53,16 @@ function assertSupportedConversion(sourceFormat: FileFormat, targetFormat: FileF
   }
 }
 
-const FORMAT_ALIASES: Partial<Record<FileFormat, string[]>> = {
-  jpg: ["jpeg"],
-  jpeg: ["jpg"],
-}
+const normalizeImageFormat = (format: string): string => (format === "jpeg" ? "jpg" : format)
 
 function ensureFileMatchesFormat(file: File, sourceFormat: FileFormat): void {
   const extension = file.name.split(".").pop()?.toLowerCase()
   if (!extension) return
 
-  const aliasExtensions = FORMAT_ALIASES[sourceFormat] ?? []
-  const allowedExtensions = new Set<string>([sourceFormat, ...aliasExtensions])
+  const normalizedExtension = normalizeImageFormat(extension)
+  const normalizedSource = normalizeImageFormat(sourceFormat)
 
-  if (!allowedExtensions.has(extension)) {
+  if (normalizedExtension !== normalizedSource) {
     throw new ConversionError(
       `File extension ".${extension}" does not match declared source format "${sourceFormat}". Please select the correct file.`,
       sourceFormat,
@@ -369,7 +366,7 @@ export async function convertFile(file: File, sourceFormat: FileFormat, targetFo
       const images = await pdfToImages(file, targetFormat)
       if (!images.length) {
         throw new ConversionError(
-          "Unable to render PDF pages. The document may be empty, corrupted, password-protected, or use unsupported features.",
+          "Unable to render PDF pages. The document may be empty, corrupted, password-protected, or use unsupported features. Please verify the PDF is valid and accessible.",
           sourceFormat,
           targetFormat,
         )

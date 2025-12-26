@@ -39,6 +39,20 @@ class OCRServiceError extends Error {
 
 const DEFAULT_RETRY_ATTEMPTS = 2
 const DEFAULT_RETRY_DELAY_MS = 300
+const parseNumberOrDefault = (value: string | undefined, fallback: number): number => {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback
+}
+
+const resolveRetryConfig = (options: OCROptions) => {
+  const envRetries = typeof process !== "undefined" ? process.env?.NEXT_PUBLIC_OCR_RETRY_ATTEMPTS : undefined
+  const envDelay = typeof process !== "undefined" ? process.env?.NEXT_PUBLIC_OCR_RETRY_DELAY_MS : undefined
+
+  return {
+    retries: options.retryAttempts ?? parseNumberOrDefault(envRetries, DEFAULT_RETRY_ATTEMPTS),
+    delayMs: options.retryDelayMs ?? parseNumberOrDefault(envDelay, DEFAULT_RETRY_DELAY_MS),
+  }
+}
 
 export class DeepSeekOCRService {
   private apiEndpoint = "https://api.deepseek.com"
@@ -210,9 +224,10 @@ export class DeepSeekOCRService {
         return await this.fallbackOCR(processedImage, options)
       }
 
+      const retryConfig = resolveRetryConfig(options)
       const deepSeekResult = await withRetry(
         () => this.runDeepSeekOCR(processedImage, apiKey, options),
-        { retries: options.retryAttempts ?? DEFAULT_RETRY_ATTEMPTS, delayMs: options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS },
+        retryConfig,
         (error, attempt) => console.warn(`[v0] OCR: DeepSeek attempt ${attempt} failed`, error),
       )
 
