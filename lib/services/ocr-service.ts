@@ -25,6 +25,8 @@ interface OCROptions {
   enhanceImage?: boolean
   detectOrientation?: boolean
   preserveLayout?: boolean
+  retryAttempts?: number
+  retryDelayMs?: number
 }
 
 type TesseractWorker = import("tesseract.js").Worker
@@ -208,7 +210,7 @@ export class DeepSeekOCRService {
 
       const deepSeekResult = await withRetry(
         () => this.runDeepSeekOCR(processedImage, apiKey, options),
-        { retries: 2, delayMs: 300 },
+        { retries: options.retryAttempts ?? 2, delayMs: options.retryDelayMs ?? 300 },
         (error, attempt) => console.warn(`[v0] OCR: DeepSeek attempt ${attempt} failed`, error),
       )
 
