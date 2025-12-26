@@ -1,6 +1,7 @@
 import type React from "react"
 import type { Metadata } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
+import { Analytics } from "@vercel/analytics/next"
 
 import { FileProvider } from "@/lib/file-context"
 import { Navbar } from "@/components/navbar"
@@ -33,6 +34,7 @@ export default function RootLayout({
       <body className={`${geist.variable} ${geistMono.variable} font-sans antialiased`}>
         <Navbar />
         <FileProvider>{children}</FileProvider>
+        <Analytics />
       </body>
     </html>
   )
