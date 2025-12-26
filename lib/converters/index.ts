@@ -1,4 +1,5 @@
 import type { FileFormat } from "@/lib/types"
+import { CONVERSION_OPTIONS } from "@/lib/types"
 import { pdfToImages, pdfToText, imageToPdf } from "./pdf-converter"
 import { convertImage } from "./image-converter"
 import { convertAudio, convertVideo, extractAudioFromVideo } from "./media-converter"
@@ -8,6 +9,13 @@ import jsPDF from "jspdf"
 // @ts-ignore - docshift types
 import { toHtml } from "docshift"
 import mammoth from "mammoth"
+
+export class ConversionError extends Error {
+  constructor(message: string, public readonly sourceFormat?: FileFormat, public readonly targetFormat?: FileFormat) {
+    super(message)
+    this.name = "ConversionError"
+  }
+}
 
 // pdf-lib's WinAnsi encoding can't handle all Unicode characters
 function sanitizeTextForPdf(text: string): string {
@@ -36,6 +44,31 @@ function htmlToText(html: string): string {
     .trim()
 
   return text
+}
+
+function assertSupportedConversion(sourceFormat: FileFormat, targetFormat: FileFormat): void {
+  const option = CONVERSION_OPTIONS.find((item) => item.from === sourceFormat)
+  if (!option || !option.to.includes(targetFormat)) {
+    throw new ConversionError(`Conversion from ${sourceFormat} to ${targetFormat} is not supported`, sourceFormat, targetFormat)
+  }
+}
+
+const normalizeImageFormat = (format: string): string => (format === "jpeg" ? "jpg" : format)
+
+function ensureFileMatchesFormat(file: File, sourceFormat: FileFormat): void {
+  const extension = file.name.split(".").pop()?.toLowerCase()
+  if (!extension) return
+
+  const normalizedExtension = normalizeImageFormat(extension)
+  const normalizedSource = normalizeImageFormat(sourceFormat)
+
+  if (normalizedExtension !== normalizedSource) {
+    throw new ConversionError(
+      `File extension ".${extension}" does not match declared source format "${sourceFormat}". Please select the correct file.`,
+      sourceFormat,
+      undefined,
+    )
+  }
 }
 
 async function textToPdf(file: File): Promise<Blob> {
@@ -309,131 +342,157 @@ async function pdfToDocx(file: File): Promise<Blob> {
 }
 
 export async function convertFile(file: File, sourceFormat: FileFormat, targetFormat: FileFormat): Promise<Blob> {
-  // DOCX to PDF conversion
-  if (sourceFormat === "docx" && targetFormat === "pdf") {
-    return await docxToPdf(file)
-  }
+  assertSupportedConversion(sourceFormat, targetFormat)
+  ensureFileMatchesFormat(file, sourceFormat)
 
-  // DOCX to TXT conversion
-  if (sourceFormat === "docx" && targetFormat === "txt") {
-    return await docxToText(file)
-  }
+  try {
+    // DOCX to PDF conversion
+    if (sourceFormat === "docx" && targetFormat === "pdf") {
+      return await docxToPdf(file)
+    }
 
-  // TXT to PDF conversion
-  if (sourceFormat === "txt" && targetFormat === "pdf") {
-    return await textToPdf(file)
-  }
+    // DOCX to TXT conversion
+    if (sourceFormat === "docx" && targetFormat === "txt") {
+      return await docxToText(file)
+    }
 
-  // PDF conversions
-  if (sourceFormat === "pdf" && (targetFormat === "jpg" || targetFormat === "png")) {
-    const images = await pdfToImages(file, targetFormat)
-    return images[0]
-  }
+    // TXT to PDF conversion
+    if (sourceFormat === "txt" && targetFormat === "pdf") {
+      return await textToPdf(file)
+    }
 
-  if (sourceFormat === "pdf" && targetFormat === "txt") {
-    const text = await pdfToText(file)
-    return new Blob([text], { type: "text/plain" })
-  }
+    // PDF conversions
+    if (sourceFormat === "pdf" && (targetFormat === "jpg" || targetFormat === "png")) {
+      const images = await pdfToImages(file, targetFormat)
+      if (!images.length) {
+        throw new ConversionError(
+          "Unable to render PDF pages. The document may be empty, corrupted, password-protected, or use unsupported features. Please verify the PDF is valid and accessible.",
+          sourceFormat,
+          targetFormat,
+        )
+      }
+      return images[0]
+    }
 
-  if (sourceFormat === "pdf" && targetFormat === "docx") {
-    return await pdfToDocx(file)
-  }
+    if (sourceFormat === "pdf" && targetFormat === "txt") {
+      const text = await pdfToText(file)
+      return new Blob([text], { type: "text/plain" })
+    }
 
-  if (sourceFormat === "pdf" && targetFormat === "xlsx") {
-    throw new Error(
-      "PDF to XLSX conversion is not yet implemented. Currently supported: PDF → TXT, PDF → DOCX, PDF → JPG/PNG",
+    if (sourceFormat === "pdf" && targetFormat === "docx") {
+      return await pdfToDocx(file)
+    }
+
+    if (sourceFormat === "pdf" && targetFormat === "xlsx") {
+      throw new ConversionError(
+        "PDF to XLSX conversion is not yet implemented. Currently supported: PDF → TXT, PDF → DOCX, PDF → JPG/PNG",
+        sourceFormat,
+        targetFormat,
+      )
+    }
+
+    // Image to PDF
+    if (
+      (sourceFormat === "jpg" ||
+        sourceFormat === "jpeg" ||
+        sourceFormat === "png" ||
+        sourceFormat === "webp" ||
+        sourceFormat === "gif") &&
+      targetFormat === "pdf"
+    ) {
+      return await imageToPdf(file)
+    }
+
+    // Image to text OCR conversion
+    if (
+      (sourceFormat === "jpg" || sourceFormat === "jpeg" || sourceFormat === "png" || sourceFormat === "webp") &&
+      targetFormat === "txt"
+    ) {
+      return await imageToText(file)
+    }
+
+    if (
+      (sourceFormat === "jpg" ||
+        sourceFormat === "jpeg" ||
+        sourceFormat === "png" ||
+        sourceFormat === "webp" ||
+        sourceFormat === "gif") &&
+      (targetFormat === "jpg" ||
+        targetFormat === "jpeg" ||
+        targetFormat === "png" ||
+        targetFormat === "webp" ||
+        targetFormat === "gif")
+    ) {
+      return await convertImage(file, targetFormat)
+    }
+
+    // Audio conversions
+    if (
+      (sourceFormat === "mp3" ||
+        sourceFormat === "wav" ||
+        sourceFormat === "ogg" ||
+        sourceFormat === "aac" ||
+        sourceFormat === "flac" ||
+        sourceFormat === "m4a") &&
+      (targetFormat === "mp3" ||
+        targetFormat === "wav" ||
+        targetFormat === "ogg" ||
+        targetFormat === "aac" ||
+        targetFormat === "flac" ||
+        targetFormat === "m4a")
+    ) {
+      // Use browser-based conversion for all audio formats
+      return await convertAudio(file, targetFormat as any)
+    }
+
+    // Video to Audio conversion
+    if (
+      (sourceFormat === "mp4" ||
+        sourceFormat === "webm" ||
+        sourceFormat === "avi" ||
+        sourceFormat === "mov" ||
+        sourceFormat === "mkv" ||
+        sourceFormat === "flv") &&
+      (targetFormat === "mp3" ||
+        targetFormat === "wav" ||
+        targetFormat === "ogg" ||
+        targetFormat === "aac" ||
+        targetFormat === "flac" ||
+        targetFormat === "m4a")
+    ) {
+      return await extractAudioFromVideo(file, targetFormat)
+    }
+
+    // Video conversions
+    if (
+      (sourceFormat === "mp4" ||
+        sourceFormat === "webm" ||
+        sourceFormat === "avi" ||
+        sourceFormat === "mov" ||
+        sourceFormat === "mkv" ||
+        sourceFormat === "flv") &&
+      (targetFormat === "mp4" ||
+        targetFormat === "webm" ||
+        targetFormat === "avi" ||
+        targetFormat === "mov" ||
+        targetFormat === "mkv" ||
+        targetFormat === "flv")
+    ) {
+      return await convertVideo(file, targetFormat)
+    }
+
+    throw new ConversionError(`Conversion from ${sourceFormat} to ${targetFormat} is not yet implemented`, sourceFormat, targetFormat)
+  } catch (error) {
+    if (error instanceof ConversionError) {
+      throw error
+    }
+
+    throw new ConversionError(
+      `Failed to convert ${file.name || "file"} from ${sourceFormat} to ${targetFormat}: ${
+        error instanceof Error ? error.message : "Unknown error"
+      }`,
+      sourceFormat,
+      targetFormat,
     )
   }
-
-  // Image to PDF
-  if (
-    (sourceFormat === "jpg" ||
-      sourceFormat === "jpeg" ||
-      sourceFormat === "png" ||
-      sourceFormat === "webp" ||
-      sourceFormat === "gif") &&
-    targetFormat === "pdf"
-  ) {
-    return await imageToPdf(file)
-  }
-
-  // Image to text OCR conversion
-  if (
-    (sourceFormat === "jpg" || sourceFormat === "jpeg" || sourceFormat === "png" || sourceFormat === "webp") &&
-    targetFormat === "txt"
-  ) {
-    return await imageToText(file)
-  }
-
-  if (
-    (sourceFormat === "jpg" ||
-      sourceFormat === "jpeg" ||
-      sourceFormat === "png" ||
-      sourceFormat === "webp" ||
-      sourceFormat === "gif") &&
-    (targetFormat === "jpg" ||
-      targetFormat === "jpeg" ||
-      targetFormat === "png" ||
-      targetFormat === "webp" ||
-      targetFormat === "gif")
-  ) {
-    return await convertImage(file, targetFormat)
-  }
-
-  // Audio conversions
-  if (
-    (sourceFormat === "mp3" ||
-      sourceFormat === "wav" ||
-      sourceFormat === "ogg" ||
-      sourceFormat === "aac" ||
-      sourceFormat === "flac" ||
-      sourceFormat === "m4a") &&
-    (targetFormat === "mp3" ||
-      targetFormat === "wav" ||
-      targetFormat === "ogg" ||
-      targetFormat === "aac" ||
-      targetFormat === "flac" ||
-      targetFormat === "m4a")
-  ) {
-    // Use browser-based conversion for all audio formats
-    return await convertAudio(file, targetFormat as any)
-  }
-
-  // Video to Audio conversion
-  if (
-    (sourceFormat === "mp4" ||
-      sourceFormat === "webm" ||
-      sourceFormat === "avi" ||
-      sourceFormat === "mov" ||
-      sourceFormat === "mkv" ||
-      sourceFormat === "flv") &&
-    (targetFormat === "mp3" ||
-      targetFormat === "wav" ||
-      targetFormat === "ogg" ||
-      targetFormat === "aac" ||
-      targetFormat === "flac" ||
-      targetFormat === "m4a")
-  ) {
-    return await extractAudioFromVideo(file, targetFormat)
-  }
-
-  // Video conversions
-  if (
-    (sourceFormat === "mp4" ||
-      sourceFormat === "webm" ||
-      sourceFormat === "avi" ||
-      sourceFormat === "mov" ||
-      sourceFormat === "mkv" ||
-      sourceFormat === "flv") &&
-    (targetFormat === "mp4" ||
-      targetFormat === "webm" ||
-      targetFormat === "avi" ||
-      targetFormat === "mov" ||
-      targetFormat === "mkv" ||
-      targetFormat === "flv")
-  ) {
-    return await convertVideo(file, targetFormat)
-  }
-
-  throw new Error(`Conversion from ${sourceFormat} to ${targetFormat} is not yet implemented`)
 }
