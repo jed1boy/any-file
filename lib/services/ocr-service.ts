@@ -27,6 +27,8 @@ interface OCROptions {
   preserveLayout?: boolean
 }
 
+type TesseractWorker = import("tesseract.js").Worker
+
 class OCRServiceError extends Error {
   constructor(message: string, public readonly cause?: unknown) {
     super(message)
@@ -273,7 +275,7 @@ export class DeepSeekOCRService {
   private async fallbackOCR(imageBlob: Blob, options: OCROptions): Promise<OCRResult> {
     console.log("[v0] OCR: Using Tesseract.js for text extraction")
 
-    let worker: any | null = null
+    let worker: TesseractWorker | null = null
     let imageUrl: string | null = null
 
     try {

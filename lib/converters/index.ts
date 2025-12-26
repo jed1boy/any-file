@@ -366,7 +366,11 @@ export async function convertFile(file: File, sourceFormat: FileFormat, targetFo
     if (sourceFormat === "pdf" && (targetFormat === "jpg" || targetFormat === "png")) {
       const images = await pdfToImages(file, targetFormat)
       if (!images.length) {
-        throw new ConversionError("Unable to render PDF pages to images", sourceFormat, targetFormat)
+        throw new ConversionError(
+          "Unable to render PDF pages to images. The document may be empty, corrupted, or password-protected.",
+          sourceFormat,
+          targetFormat,
+        )
       }
       return images[0]
     }
