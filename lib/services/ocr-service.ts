@@ -4,9 +4,9 @@
  * Features: Multi-language support, image pre-processing, text post-processing
  */
 
+import type { Worker as TesseractWorker } from "tesseract.js"
 import { getDeepSeekApiKey } from "../utils/storage"
 import { applyContrastAndThreshold, estimateThreshold, withRetry } from "./ocr-utils"
-type TesseractWorker = import("tesseract.js").Worker
 
 interface OCRResult {
   text: string

@@ -54,8 +54,8 @@ function assertSupportedConversion(sourceFormat: FileFormat, targetFormat: FileF
 }
 
 const FORMAT_ALIASES: Partial<Record<FileFormat, string[]>> = {
-  jpg: ["jpg", "jpeg"],
-  jpeg: ["jpeg", "jpg"],
+  jpg: ["jpeg"],
+  jpeg: ["jpg"],
 }
 
 function ensureFileMatchesFormat(file: File, sourceFormat: FileFormat): void {
